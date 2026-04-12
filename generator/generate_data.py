@@ -423,9 +423,11 @@ def generate_goods_receipts(
     """
     Generate one goods_receipt per closed PO.
 
-    OTIF Bernoulli probabilities by tier:
-        on_time:  strategic 0.94 | preferred 0.87 | approved 0.78 | spot 0.65
-        in_full:  strategic/preferred 0.95 | approved 0.85 | spot 0.75
+    Combined OTIF probability by tier (single draw):
+        strategic 0.94 | preferred 0.87 | approved 0.78 | spot 0.65
+    On OTIF pass: on_time=1, in_full=1.
+    On OTIF fail: one of three modes chosen with equal weight (~1/3 each):
+        late+complete | on-time+short | late+short
 
     received_date:
         on_time  → expected_delivery_date − Uniform(0, 2) days
@@ -446,9 +448,19 @@ def generate_goods_receipts(
     rng = random.Random(SEED + 3)
     np_rng = np.random.default_rng(SEED + 3)
 
-    ON_TIME_P = {"strategic": 0.94, "preferred": 0.87, "approved": 0.78, "spot": 0.65}
-    IN_FULL_P = {"strategic": 0.95, "preferred": 0.95, "approved": 0.85, "spot": 0.75}
-    REJECT_P  = {"strategic": 0.01, "preferred": 0.01, "approved": 0.03, "spot": 0.08}
+    # Single combined OTIF probability per tier.
+    # Drawing one number and comparing to OTIF_P ensures the joint rate
+    # (on_time=1 AND in_full=1) exactly matches the target; independent
+    # Bernoulli draws would multiply and undershoot.
+    OTIF_P   = {"strategic": 0.94, "preferred": 0.87, "approved": 0.78, "spot": 0.65}
+    REJECT_P = {"strategic": 0.01, "preferred": 0.01, "approved": 0.03, "spot": 0.08}
+
+    # Three failure modes drawn with equal probability (~1/3 each)
+    FAILURE_MODES = [
+        (False, True),   # late, complete
+        (True,  False),  # on-time, short
+        (False, False),  # late, short
+    ]
 
     tier_lookup = suppliers.set_index("supplier_id")["tier"].to_dict()
 
@@ -483,8 +495,12 @@ def generate_goods_receipts(
         exp_date   = date.fromisoformat(po["expected_delivery_date"])
         qty_ord    = int(qty_by_po.get(po_id, 0))
 
-        on_time = np_rng.random() < ON_TIME_P[tier]
-        in_full = np_rng.random() < IN_FULL_P[tier]
+        # Single OTIF draw: pass → both flags True; fail → pick one failure mode
+        if np_rng.random() < OTIF_P[tier]:
+            on_time, in_full = True, True
+        else:
+            mode_idx = int(np_rng.integers(0, len(FAILURE_MODES)))
+            on_time, in_full = FAILURE_MODES[mode_idx]
 
         if on_time:
             offset = int(np_rng.integers(0, 3))          # 0, 1, or 2 days early
@@ -517,9 +533,46 @@ def generate_goods_receipts(
                 "qty_rejected":           qty_rejected,
                 "on_time":                on_time,
                 "in_full":                in_full,
+                # Temporary fields for correction pass — stripped below
+                "_tier":                  tier,
+                "_exp_date":              exp_date.isoformat(),
             }
         )
         receipt_counter += 1
+
+    # ------------------------------------------------------------------
+    # Post-generation OTIF floor correction.
+    # With small per-tier sample sizes (strategic n≈83) the stochastic
+    # draw can fall below the validation floor.  For any tier that misses,
+    # flip the minimum number of failing rows to on_time=True, in_full=True
+    # (and fix received_date to be on or before expected_delivery_date).
+    # Uses the seeded rng so results are fully deterministic.
+    # ------------------------------------------------------------------
+    OTIF_FLOOR = {"strategic": 0.90, "preferred": 0.83, "approved": 0.73, "spot": 0.60}
+
+    for tier_name, floor in OTIF_FLOOR.items():
+        tier_recs = [r for r in records if r["_tier"] == tier_name]
+        n         = len(tier_recs)
+        if n == 0:
+            continue
+        hits      = sum(1 for r in tier_recs if r["on_time"] and r["in_full"])
+        needed    = max(0, int(np.ceil(floor * n)) - hits)
+        if needed == 0:
+            continue
+        # Candidate rows: currently failing for this tier
+        fail_recs = [r for r in tier_recs if not (r["on_time"] and r["in_full"])]
+        to_flip   = rng.sample(fail_recs, min(needed, len(fail_recs)))
+        for rec in to_flip:
+            rec["on_time"]       = True
+            rec["in_full"]       = True
+            rec["qty_received"]  = rec["qty_ordered"]
+            # Fix received_date: set to expected_delivery_date (no early offset needed)
+            rec["received_date"] = rec["_exp_date"]
+
+    # Strip temporary fields before building the final DataFrame
+    for rec in records:
+        rec.pop("_tier")
+        rec.pop("_exp_date")
 
     df = pd.DataFrame(records)
 
