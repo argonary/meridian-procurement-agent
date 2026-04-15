@@ -41,15 +41,18 @@ Run `python generate_data.py` from `generator/` → writes all five CSVs to `dat
   independent.
 - **PO date range Jan 2024 – Mar 2026** — extended from the blueprint's Dec 2025
   because today is 2026-04-12; the original range produced zero open POs.
-- **Overbilling supplier: SUP-005** Cardinal Fluid Systems (approved/services).
-  Selected as the approved-tier supplier with the most closed POs (230 invoices).
-  84.8% of its invoices are overbilled; avg ratio 1.0515, range 0.99–1.08.
-  All other suppliers: avg ratio 1.0000, zero invoices > 1.03.
+- **Overbilling supplier: SUP-018** Hartwell Industrial Supply (approved/category per
+  generate_suppliers SEED=108). Selected as the approved-tier supplier with the most
+  closed POs (22 invoices). 86.4% of its invoices are overbilled; avg ratio 1.0511.
+  All other suppliers: avg ratio ≤ 1.003, none exceeding the 1.03 threshold.
+  Note: changed from SUP-005 when tier-aware weight assignment reduced approved-tier
+  PO volume — SUP-018 became the top approved supplier by closed PO count.
 - **Missing receipt anomaly:** 12 closed corporate POs have no `goods_receipt`
   row. Selected as first 12 closed corporate POs in `po_id` order. IDs:
-  PO-00039, PO-00043, PO-00045, PO-00053, PO-00081, PO-00082,
-  PO-00090, PO-00119, PO-00120, PO-00142, PO-00148, PO-00150.
+  PO-00005, PO-00008, PO-00032, PO-00034, PO-00035, PO-00036,
+  PO-00042, PO-00047, PO-00057, PO-00059, PO-00078, PO-00090.
   Hard-coded in a comment inside `generate_goods_receipts()`.
+  Note: IDs changed from prior session after tier-aware weight fix reshuffled PO distribution.
 
 ### CSV row counts (SEED=108, verified)
 | File                | Rows  | Cols |
@@ -57,8 +60,8 @@ Run `python generate_data.py` from `generator/` → writes all five CSVs to `dat
 | suppliers.csv       |    50 |    7 |
 | purchase_orders.csv | 2,000 |    9 |
 | po_line_items.csv   | 7,731 |    8 |
-| goods_receipts.csv  | 1,830 |    9 |
-| invoices.csv        | 1,842 |    9 |
+| goods_receipts.csv  | 1,825 |    9 |
+| invoices.csv        | 1,837 |    9 |
 
 ---
 

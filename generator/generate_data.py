@@ -206,10 +206,21 @@ def generate_purchase_orders(suppliers: pd.DataFrame, n: int = 2000) -> pd.DataF
 
     raw_weights = np.array([1.0 / (i + 1) for i in range(n_sup)], dtype=float)
 
-    # Shuffle the weight assignment so "top-10 by weight" aren't just SUP-001…010
-    weight_order = np_rng.permutation(n_sup)
+    # Tier-aware weight assignment: strategic suppliers get the highest Zipf ranks,
+    # then preferred, then approved, then spot.  Within each tier the order is
+    # shuffled so it isn't just the first few supplier IDs.  This guarantees
+    # strategic/preferred anchor the top-10 and spot suppliers stay low-weight.
+    TIER_ORDER = ["strategic", "preferred", "approved", "spot"]
+    tier_col = suppliers["tier"].tolist()
+    ordered_indices: list[int] = []
+    for t in TIER_ORDER:
+        idx_list = [i for i, tier in enumerate(tier_col) if tier == t]
+        np_rng.shuffle(idx_list)
+        ordered_indices.extend(idx_list)
+
     weights = np.empty(n_sup)
-    weights[weight_order] = raw_weights          # assign Zipf weight to a random supplier
+    for rank, sup_idx in enumerate(ordered_indices):
+        weights[sup_idx] = raw_weights[rank]
 
     top10_idx = np.argsort(weights)[::-1][:10]
     top10_mass = weights[top10_idx].sum()
@@ -298,7 +309,7 @@ def generate_purchase_orders(suppliers: pd.DataFrame, n: int = 2000) -> pd.DataF
     return pd.DataFrame(records)
 
 
-def generate_po_line_items(purchase_orders: pd.DataFrame, n_per_po: tuple = (2, 6)) -> pd.DataFrame:
+def generate_po_line_items(purchase_orders: pd.DataFrame, suppliers: pd.DataFrame, n_per_po: tuple = (2, 6)) -> pd.DataFrame:
     """
     Generate 2–6 line items for every non-cancelled PO.
 
@@ -323,6 +334,12 @@ def generate_po_line_items(purchase_orders: pd.DataFrame, n_per_po: tuple = (2, 
     """
     rng = random.Random(SEED + 2)
     np_rng = np.random.default_rng(SEED + 2)
+
+    # Tier-aware cost ceiling multiplier.
+    # Spot buys are one-off, off-contract — lower unit values reflect that.
+    # Approved is mid-range; strategic/preferred suppliers hold the big contracts.
+    COST_CEIL_MULT = {"strategic": 1.00, "preferred": 0.85, "approved": 0.60, "spot": 0.25}
+    tier_lookup = suppliers.set_index("supplier_id")["tier"].to_dict()
 
     COST_RANGE = {
         "direct_materials": (50.0,   5000.0),
@@ -385,7 +402,10 @@ def generate_po_line_items(purchase_orders: pd.DataFrame, n_per_po: tuple = (2, 
 
         n_lines = int(np_rng.integers(n_per_po[0], n_per_po[1] + 1))
 
-        cost_lo, cost_hi = COST_RANGE.get(category, (20.0, 2000.0))
+        tier             = tier_lookup[po["supplier_id"]]
+        mult             = COST_CEIL_MULT[tier]
+        cost_lo, cost_hi_base = COST_RANGE.get(category, (20.0, 2000.0))
+        cost_hi          = max(cost_hi_base * mult, cost_lo * 1.5)  # never let ceiling fall below floor
         sigma            = SIGMA.get(category, TAIL_SIGMA)
         qty_lo, qty_hi   = QTY_RANGE.get(category, (1, 20))
         name_pool        = ITEM_NAMES.get(category, ITEM_NAMES["mro"])
@@ -480,10 +500,9 @@ def generate_goods_receipts(
         .head(12)
     )
     MISSING_RECEIPT_PO_IDS = corporate_closed["po_id"].tolist()
-    # Hard-coded for reference (verified on SEED=108 dataset):
-    # ['PO-00039', 'PO-00043', 'PO-00045', 'PO-00053', 'PO-00081',
-    #  'PO-00082', 'PO-00090', 'PO-00119', 'PO-00120', 'PO-00142',
-    #  'PO-00148', 'PO-00150']
+    # Hard-coded for reference (verified on SEED=108 dataset, post tier-aware weight fix):
+    # ['PO-00005', 'PO-00008', 'PO-00032', 'PO-00034', 'PO-00035', 'PO-00036',
+    #  'PO-00042', 'PO-00047', 'PO-00057', 'PO-00059', 'PO-00078', 'PO-00090']
 
     records = []
     receipt_counter = 1
@@ -723,7 +742,7 @@ def main():
     pos = generate_purchase_orders(suppliers)
 
     # 3. Line items — generated first so we can write back total_value
-    lines = generate_po_line_items(pos)
+    lines = generate_po_line_items(pos, suppliers)
     po_totals = lines.groupby("po_id")["line_total"].sum()
     pos["total_value"] = pos["po_id"].map(po_totals).fillna(0.0).round(2)
 

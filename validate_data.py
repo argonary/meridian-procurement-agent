@@ -115,25 +115,33 @@ if not indirect_ok:
 check(3, "Price variance by category", c3_ok, "; ".join(detail3))
 
 
-# Check 4 — Overbilling anomaly (SUP-005)
-# invoices has supplier_id and po_total_value denormalized; no extra joins needed
-row = conn.execute("""
+# Check 4 — Overbilling anomaly
+# Find whichever approved-tier supplier has the highest avg invoice/PO ratio.
+# The generator picks this supplier dynamically (most closed POs in approved tier),
+# so the check must not hardcode a supplier ID.
+overbill_row = conn.execute("""
     SELECT
+        i.supplier_id,
         COUNT(*)                                                                AS total,
-        SUM(CASE WHEN invoice_amount > po_total_value THEN 1 ELSE 0 END)       AS overbilled,
-        AVG(invoice_amount / po_total_value)                                    AS avg_ratio
-    FROM invoices
-    WHERE supplier_id = 'SUP-005'
+        SUM(CASE WHEN i.invoice_amount > i.po_total_value THEN 1 ELSE 0 END)  AS overbilled,
+        AVG(i.invoice_amount / i.po_total_value)                               AS avg_ratio
+    FROM invoices i
+    JOIN suppliers s ON i.supplier_id = s.supplier_id
+    WHERE s.tier = 'approved'
+    GROUP BY i.supplier_id
+    ORDER BY avg_ratio DESC
+    LIMIT 1
 """).fetchone()
 
-if row["total"] == 0:
-    check(4, "Overbilling anomaly SUP-005", False, "no invoices found for SUP-005")
+if overbill_row is None or overbill_row["total"] == 0:
+    check(4, "Overbilling anomaly", False, "no approved-tier invoices found")
 else:
-    pct   = row["overbilled"] / row["total"]
-    ratio = row["avg_ratio"]
-    c4_ok = pct >= 0.80 and 1.03 <= ratio <= 1.09
-    check(4, "Overbilling anomaly SUP-005", c4_ok,
-          f"overbill_pct={pct:.4f} (want ≥0.80), avg_ratio={ratio:.4f} (want 1.03–1.09)")
+    sup_id = overbill_row["supplier_id"]
+    pct    = overbill_row["overbilled"] / overbill_row["total"]
+    ratio  = overbill_row["avg_ratio"]
+    c4_ok  = pct >= 0.80 and 1.03 <= ratio <= 1.09
+    check(4, f"Overbilling anomaly {sup_id}", c4_ok,
+          f"overbill_pct={pct:.4f} (want >=0.80), avg_ratio={ratio:.4f} (want 1.03-1.09)")
 
 
 # Check 5 — Near-duplicate supplier names
