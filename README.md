@@ -1,4 +1,4 @@
-﻿# Meridian Industrial — Procurement Analytics Agent
+﻿# Meridian Industrial: Procurement Analytics Agent
 
 A conversational AI agent that answers natural language procurement questions against a causally-structured synthetic dataset. Ask it about supplier performance, spend concentration, overbilling anomalies, or how the supplier roster has changed over time.
 
