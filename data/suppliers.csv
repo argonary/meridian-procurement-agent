@@ -1,0 +1,51 @@
+supplier_id,supplier_name,tier,category_focus,country,is_active,onboarded_date
+SUP-001,Apex Precision Components,strategic,indirect,Canada,True,2023-04-12
+SUP-002,Atlas Fabrication Group,approved,mro,USA,True,2021-12-04
+SUP-003,Beacon Industrial Solutions,approved,services,USA,True,2020-05-30
+SUP-004,Bridgewater Metal Works,approved,direct_materials,USA,True,2022-11-09
+SUP-005,Cardinal Fluid Systems,approved,services,Netherlands,True,2019-03-08
+SUP-006,Cascade Polymer Industries,strategic,mro,USA,True,2018-08-14
+SUP-007,Clearfield Mechanical,preferred,services,USA,True,2022-01-02
+SUP-008,Crestline Equipment Co.,approved,services,USA,True,2018-09-12
+SUP-009,Delta Alloy Partners,strategic,direct_materials,Mexico,True,2019-11-03
+SUP-010,Dunmore Safety Products,approved,indirect,Mexico,True,2018-05-01
+SUP-011,Eastern Hydraulics Inc.,approved,indirect,USA,True,2023-02-05
+SUP-012,Elgin Tooling & Die,spot,services,Canada,True,2022-06-01
+SUP-013,Fairview Chemical Supply,spot,direct_materials,USA,True,2022-06-21
+SUP-014,Frontier Fastener Corp.,approved,indirect,Spain,True,2023-03-03
+SUP-015,Gateway Coatings Ltd.,approved,services,Mexico,True,2018-07-26
+SUP-016,Granite Peak Engineering,approved,direct_materials,France,True,2021-08-02
+SUP-017,Greenfield MRO Services,spot,services,USA,True,2020-01-11
+SUP-018,Hartwell Industrial Supply,approved,services,USA,True,2022-09-22
+SUP-019,Hartwell Industrial Supplies,preferred,services,USA,True,2020-06-04
+SUP-020,Highpoint Automation,approved,mro,USA,True,2018-08-04
+SUP-021,Ironbridge Castings,strategic,mro,USA,True,2021-08-07
+SUP-022,Keystone Bearing & Seal,spot,mro,Canada,True,2019-07-16
+SUP-023,Lakeside Composite Materials,spot,mro,USA,True,2020-10-24
+SUP-024,Liberty Power Systems,approved,mro,China,True,2018-06-28
+SUP-025,Longview Electronics,spot,mro,USA,True,2021-07-16
+SUP-026,Maple Ridge Packaging,preferred,services,USA,True,2022-03-04
+SUP-027,Meridian Bolt & Nut,approved,services,USA,True,2022-09-26
+SUP-028,Mesa Fluid Controls,approved,mro,USA,True,2022-06-11
+SUP-029,Midland Rubber Products,preferred,services,USA,True,2022-04-04
+SUP-030,National Filtration Systems,spot,direct_materials,Japan,True,2019-09-17
+SUP-031,Nexgen Sensor Technologies,strategic,mro,Canada,True,2020-11-01
+SUP-032,Northern Forge Works,approved,indirect,Germany,True,2019-05-23
+SUP-033,Oakdale Welding Supply,spot,direct_materials,USA,True,2019-09-12
+SUP-034,Offshore Logistics Partners,spot,indirect,USA,True,2022-10-26
+SUP-035,Omni-Lube Industrial,preferred,mro,USA,True,2018-06-20
+SUP-036,Pacific Rim Stamping,spot,services,Mexico,True,2022-11-19
+SUP-037,Palisade Pneumatics,approved,direct_materials,USA,True,2019-07-12
+SUP-038,Paragon Safety Equipment,spot,services,Italy,True,2020-07-09
+SUP-039,Patriot Steel Service,preferred,mro,Canada,True,2019-12-13
+SUP-040,Pinnacle Valve Solutions,preferred,direct_materials,USA,True,2023-02-21
+SUP-041,Premier Hose & Fittings,approved,direct_materials,Mexico,True,2022-09-04
+SUP-042,Redwood Conveyor Systems,spot,mro,USA,True,2022-03-02
+SUP-043,Regal Tooling Inc.,preferred,direct_materials,USA,True,2021-10-09
+SUP-044,Ridgeline Process Controls,spot,mro,UK,True,2020-07-31
+SUP-045,Riverbend Sheet Metal,approved,direct_materials,USA,True,2020-02-28
+SUP-046,Skyline Motion Systems,approved,direct_materials,South Korea,True,2019-09-30
+SUP-047,Suncoast Electrical Supply,spot,direct_materials,USA,True,2021-02-24
+SUP-048,Terrace Abrasives & Grinding,preferred,indirect,USA,True,2018-07-04
+SUP-049,Thunderbolt Hydraulics,spot,direct_materials,Sweden,True,2022-03-20
+SUP-050,Vanguard Precision Machining,preferred,indirect,USA,True,2022-08-20
