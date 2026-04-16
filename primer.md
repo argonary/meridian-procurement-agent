@@ -1,13 +1,81 @@
 # Meridian – Session Primer
-Last updated: 2026-04-14
+Last updated: 2026-04-15
 
 ## Phase status
 - [x] Phase 1: generator complete — all 5 CSVs produced and verified
 - [x] Phase 2: all 6 validation checks passing, `meridian.db` written
 - [x] Phase 3: raw API agent working end-to-end — all 4 demo questions pass, zero schema errors
 - [x] Phase 4: LangGraph refactor complete — all 4 demo questions pass via `graph.py`
-- [ ] Phase 5: Streamlit UI deployed and shareable
+- [x] Phase 5: Streamlit UI built and running — all 4 demo questions render correctly in browser
 - [ ] Phase 6: Databricks swap complete
+
+---
+
+## What was built this session
+
+### 1. `streamlit_app.py` (project root) — Phase 5
+
+Single-page chat UI wrapping `run_graph()` from `agent/graph.py`.
+
+**Layout:**
+- `st.chat_input` / `st.chat_message` — standard Streamlit chat pattern
+- `st.session_state.history` — list of `{role, content}` dicts, persists across reruns
+- Each question calls `run_graph()` under `st.spinner`; answer rendered as `st.markdown`
+- `except Exception as exc` wraps `run_graph()` — surfaces errors in chat rather than crashing
+
+**Sidebar:**
+- 4 example questions (italic list)
+- Full schema reference — all 5 tables with column lists
+- Glossary footer: OTIF definition, overbilling threshold, tier order
+
+**Import path:**
+Both project root and `agent/` added to `sys.path` before importing `from agent.graph import run_graph`,
+so `from config import` and `from tools import` inside `graph.py` resolve correctly when launched
+via `streamlit run streamlit_app.py`.
+
+**Run command:** `streamlit run streamlit_app.py` from project root → http://localhost:8501
+
+**Streamlit version:** 1.56.0. Required `protobuf` downgrade to `4.25.9` to fix
+`ImportError: cannot import name 'descriptor' from 'google.protobuf'` on this environment.
+
+### 2. Planner `max_tokens` fix — `agent/graph.py` line ~99
+
+Raised planner `max_tokens` from `1024` → `2048`.
+
+**Why:** Complex questions (e.g. "Who are our worst performing suppliers?") cause the planner to
+emit a 5-step plan with a large composite JOIN in step 5. At 1024 tokens the JSON response was
+truncated mid-string — both `json.loads()` parse attempts failed, plan fell back to 0 steps,
+executor ran nothing, synthesizer hallucinated a generic non-answer. At 2048 tokens the full JSON
+parses cleanly every time.
+
+---
+
+## Key decisions made
+
+- **Planner token budget is the critical lever.** The planner's output is structured JSON containing
+  full SQL strings. Multi-step plans with subquery-heavy SQL easily exceed 1024 tokens. 2048 is
+  the right floor; if more complex questions arise, raise to 4096 before changing architecture.
+
+- **No architectural change needed for the truncation bug.** Option B (simpler planner + combiner
+  step) was considered but rejected — Option A (raise max_tokens) is less complexity for the same
+  result. The current planner/executor/synthesizer structure is sound.
+
+- **Streamlit `run_graph` import uses package-style path** (`from agent.graph import run_graph`)
+  rather than manipulating `sys.path` to make `agent/` the root. This avoids a name collision
+  where `graph` could shadow stdlib or other modules.
+
+---
+
+## Questions answered this session (verified)
+
+| Question | Result |
+|---|---|
+| Which suppliers = 80% of spend? | 6 suppliers; Delta Alloy Partners 54.4% |
+| OTIF by tier? | Strategic 93.3% → Preferred 89.3% → Approved 79.6% → Spot 66.1% |
+| Which supplier overbills? | SUP-018 Hartwell; 19 invoices; avg +5.95% |
+| Closed POs with no receipt? | 12 POs, all corporate, correct IDs |
+| Who are our worst performing suppliers? | SUP-018 Hartwell (score 30.93, 86.4% overbilling) |
+| Which supplier has the most rejected goods? | SUP-049 Thunderbolt Hydraulics, 76 units |
 
 ---
 
@@ -138,74 +206,83 @@ invoices(invoice_id, po_id, supplier_id, invoice_date, due_date, paid_date,
 Status values are lowercase throughout: `closed`, `open`, `cancelled`, `paid`,
 `pending`, `overdue`, `disputed`. `on_time` and `in_full` are SQLite booleans (1/0).
 
-### Demo question results (verified)
-| Question | Result |
-|---|---|
-| Which suppliers = 80% of spend? | 6 suppliers; Delta Alloy Partners alone 54.4% |
-| OTIF by tier? | Strategic 95.8% → Preferred 93.5% → Approved 88.2% → Spot 79.5% |
-| Which supplier overbills? | SUP-018 Hartwell; 19 invoices; 6.23% above PO value |
-| Closed POs with no receipt? | 12 returned, all corporate BU, correct IDs |
-
 ---
 
 ## Phase 4 — LangGraph refactor
 
 **Status: complete. All 4 demo questions pass via `graph.py`, answers match `agent_raw.py`.**
 
-### File built
-**`agent/graph.py`** — planner/executor/synthesizer graph using LangGraph.
+### File: `agent/graph.py`
 
-### Architecture
 - **`AgentState(TypedDict)`** — keys: `question`, `plan`, `results`, `answer`, `retry_count`.
-- **`planner` node** — calls Claude with a JSON-mode prompt; returns a list of
+- **`planner` node** — calls Claude (`max_tokens=2048`) with a JSON-mode prompt; returns a list of
   `{description, sql}` steps. Two-stage parse: tries `json.loads()` directly; on failure,
-  collapses literal newlines to spaces (Claude sometimes emits multi-line SQL inside a JSON
-  string, which is invalid JSON) and retries. Falls back to empty plan with error log.
+  collapses literal newlines to spaces and retries. Falls back to empty plan with error log.
 - **`executor` node** — iterates the plan, calls `execute_sql()` per step. On `RuntimeError`,
-  sends the failed SQL + error to Claude for a corrected query and retries once. Records the
-  error in state on second failure so the synthesizer can still produce a partial answer.
+  sends the failed SQL + error to Claude for a corrected query and retries once.
 - **`synthesizer` node** — calls Claude with the original question + all step results
   (capped at 50 rows per step), produces the final natural language answer.
-- Graph: `planner → executor → synthesizer → END`, compiled with `StateGraph.compile()`.
-- **`run_graph(question) → str`** — public entry point; used by the Streamlit app.
-- **`_strip_fences(text)`** — shared helper that removes markdown code fences from any
-  model response (used in planner parse and executor retry).
+- Graph: `planner → executor → synthesizer → END`.
+- **`run_graph(question) → str`** — public entry point used by the Streamlit app.
+- **`_strip_fences(text)`** — removes markdown code fences from any model response.
 
-### CLI and import notes
-- Run as `python agent/graph.py "question"` from project root — no `PYTHONPATH` flag needed.
-  Script inserts `Path(__file__).parent.parent` (project root) into `sys.path` at startup
-  so `from config import` resolves correctly alongside `from tools import`.
-- `sys.stdout.reconfigure(encoding="utf-8")` in `main()` prevents Windows cp1252 errors
-  on em-dashes and bullet characters in synthesizer output.
-- Does **not** import `TOOL_DEFINITION` — `graph.py` uses JSON-mode planning, not Anthropic
-  tool-use. `TOOL_DEFINITION` remains exclusively for `agent_raw.py`.
-
-### Demo question results (verified this session — graph.py)
-| Question | Result | Matches agent_raw? |
-|---|---|---|
-| Which suppliers = 80% of spend? | 6 suppliers; Delta Alloy Partners 54.43% | ✓ |
-| OTIF by tier? | Strategic 93.3% → Preferred 89.3% → Approved 79.6% → Spot 66.1% | ✓ |
-| Which supplier overbills? | SUP-018 Hartwell; 19 invoices; avg +5.95% | ✓ |
-| Closed POs with no receipt? | 12 returned, all expected IDs | ✓ |
+### Critical config note
+Planner `max_tokens` is **2048** (raised from 1024 this session). Do not lower it.
+At 1024, complex multi-step plans with large composite JOINs are truncated mid-JSON,
+causing a silent 0-step fallback and hallucinated synthesizer output.
 
 ---
 
-## Phase 5 — Streamlit UI (NEXT)
+## Phase 5 — Streamlit UI
+
+**Status: complete. All demo questions render correctly in browser. No errors.**
+
+### File: `streamlit_app.py` (project root)
+
+- Wide layout, `st.chat_input` / `st.chat_message`, session state history
+- Sidebar: 4 example questions + full schema reference + glossary
+- Each user message calls `run_graph()` under `st.spinner`; answers rendered as markdown
+- Error handling: bare `except Exception` surfaces errors in chat window, no crash
+
+**Run:** `streamlit run streamlit_app.py` → http://localhost:8501
+
+**Env note:** Required `pip install "protobuf>=4.21,<5"` to fix a `google.protobuf` import
+error on this machine (Anaconda environment with conflicting protobuf version).
+
+---
+
+## Phase 6 — Databricks swap (NEXT)
 
 ### Exact next action
-Build `streamlit_app.py` at project root. Import `run_graph` from `agent/graph.py`.
-Chat interface: text input → `run_graph(question)` → render markdown answer in chat window.
-Run with `streamlit run streamlit_app.py` from project root.
+Open `agent/tools.py`. Replace the `sqlite3` connection block with `databricks-sql-connector`.
+`execute_sql()` signature and return type (`list[dict]`) must stay identical — nothing else moves.
 
-### Minimum viable UI
-- Single-page chat layout (`st.chat_input`, `st.chat_message`)
-- Session state holds conversation history as a list of `{role, content}` dicts
-- Each user message triggers `run_graph()`; spinner shown while running
-- Answers rendered as markdown (the synthesizer already outputs markdown)
-- No backend selector needed for MVP — wire to `graph.py` only
+### What changes in `tools.py`
+```python
+# Replace this:
+import sqlite3
+conn = sqlite3.connect(DB_PATH)
+...
+
+# With this (sketch):
+from databricks import sql as dbsql
+conn = dbsql.connect(
+    server_hostname=os.environ["DATABRICKS_HOST"],
+    http_path=os.environ["DATABRICKS_HTTP_PATH"],
+    access_token=os.environ["DATABRICKS_TOKEN"],
+)
+```
+Qualify table names with `{catalog}.{schema}.` prefix if Unity Catalog is enabled.
+
+### Env vars needed
+- `DATABRICKS_HOST`
+- `DATABRICKS_TOKEN`
+- `DATABRICKS_HTTP_PATH`
+- `DATABRICKS_CATALOG` / `DATABRICKS_SCHEMA`
 
 ### Acceptance test
-Open browser, ask all 4 demo questions, confirm answers render correctly with no errors.
+Run all 4 demo questions via `python agent/graph.py "..."` and confirm answers match
+the SQLite baseline before calling Phase 6 complete.
 
 ---
 

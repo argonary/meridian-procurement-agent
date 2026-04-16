@@ -98,7 +98,7 @@ def planner(state: AgentState) -> dict:
 
     response = client.messages.create(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=2048,
         system=(
             "You are a SQL planning assistant for a procurement analytics database.\n"
             "Given a natural language question, output a JSON array of query steps.\n"
