@@ -1,31 +1,39 @@
-import sqlite3
-import json
+from databricks import sql as dbsql
 import time
 import logging
-from pathlib import Path
+from config import DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN
 
-DB_PATH = Path(__file__).parent.parent / "meridian.db"
 ROW_LIMIT = 100
+CATALOG = "workspace"
+SCHEMA = "default"
 
 logger = logging.getLogger(__name__)
 
 
 def execute_sql(query: str) -> list[dict]:
-    """Execute a SQL query against meridian.db and return rows as a list of dicts.
+    """Execute a SQL query against the Databricks Unity Catalog and return rows as a list of dicts.
 
     Caps output at ROW_LIMIT rows. Raises a descriptive RuntimeError on bad SQL
     so the model can read the error and self-correct.
     """
     start = time.perf_counter()
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn = dbsql.connect(
+            server_hostname=DATABRICKS_HOST,
+            http_path=DATABRICKS_HTTP_PATH,
+            access_token=DATABRICKS_TOKEN,
+            catalog=CATALOG,
+            schema=SCHEMA,
+        )
         try:
-            cur = conn.execute(query)
-            rows = [dict(r) for r in cur.fetchmany(ROW_LIMIT)]
+            with conn.cursor() as cur:
+                cur.execute(query)
+                columns = [desc[0] for desc in cur.description]
+                raw_rows = cur.fetchmany(ROW_LIMIT)
+                rows = [dict(zip(columns, row)) for row in raw_rows]
         finally:
             conn.close()
-    except sqlite3.OperationalError as e:
+    except dbsql.exc.DatabaseError as e:
         raise RuntimeError(
             f"SQL execution failed.\nQuery: {query}\nError: {e}"
         ) from e
@@ -48,7 +56,7 @@ TOOL_DEFINITION = {
         "properties": {
             "query": {
                 "type": "string",
-                "description": "A valid SQLite query against the Meridian procurement database.",
+                "description": "A valid SQL query against the Meridian procurement database.",
             }
         },
         "required": ["query"],
