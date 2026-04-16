@@ -1,5 +1,5 @@
 # Meridian – Session Primer
-Last updated: 2026-04-15
+Last updated: 2026-04-16
 
 ## Phase status
 - [x] Phase 1: generator complete — all 5 CSVs produced and verified
@@ -7,75 +7,61 @@ Last updated: 2026-04-15
 - [x] Phase 3: raw API agent working end-to-end — all 4 demo questions pass, zero schema errors
 - [x] Phase 4: LangGraph refactor complete — all 4 demo questions pass via `graph.py`
 - [x] Phase 5: Streamlit UI built and running — all 4 demo questions render correctly in browser
-- [ ] Phase 6: Databricks swap complete
+- [x] Phase 6: Databricks swap complete — all 4 demo questions verified, results match SQLite exactly
+- [ ] Phase 7: Delta time travel extension (considering — suppliers table only)
 
 ---
 
-## What was built this session
+## What was built last session
 
-### 1. `streamlit_app.py` (project root) — Phase 5
+### Phase 6 — Databricks swap (`agent/tools.py` only)
 
-Single-page chat UI wrapping `run_graph()` from `agent/graph.py`.
+**Three files changed:**
 
-**Layout:**
-- `st.chat_input` / `st.chat_message` — standard Streamlit chat pattern
-- `st.session_state.history` — list of `{role, content}` dicts, persists across reruns
-- Each question calls `run_graph()` under `st.spinner`; answer rendered as `st.markdown`
-- `except Exception as exc` wraps `run_graph()` — surfaces errors in chat rather than crashing
+1. **`.env`** — replaced old Tier 2 block (`DATABRICKS_SERVER_HOSTNAME`, `DB_CATALOG`,
+   `DB_SCHEMA`) with exactly three vars: `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`,
+   `DATABRICKS_TOKEN`. Values filled in by user after scaffold was committed.
 
-**Sidebar:**
-- 4 example questions (italic list)
-- Full schema reference — all 5 tables with column lists
-- Glossary footer: OTIF definition, overbilling threshold, tier order
+2. **`config.py`** — added three new module-level constants loaded via `os.environ[...]`,
+   same pattern as `ANTHROPIC_API_KEY`. Missing var fails loudly at import time.
 
-**Import path:**
-Both project root and `agent/` added to `sys.path` before importing `from agent.graph import run_graph`,
-so `from config import` and `from tools import` inside `graph.py` resolve correctly when launched
-via `streamlit run streamlit_app.py`.
+3. **`agent/tools.py`** — replaced `sqlite3` with `databricks-sql-connector`.
+   - `dbsql.connect()` takes `catalog="workspace"`, `schema="default"` directly —
+     unqualified table names in model-generated SQL resolve correctly without rewriting queries.
+   - `cur.description` → column names → `dict(zip(...))` replicates `sqlite3.Row` dict behavior.
+   - `fetchmany(ROW_LIMIT)` cap, execution time logging, and `RuntimeError` with query+error
+     text are all preserved unchanged.
+   - `dbsql.exc.DatabaseError` replaces `sqlite3.OperationalError` as the caught error type.
+   - `DB_PATH` removed — no longer needed.
 
-**Run command:** `streamlit run streamlit_app.py` from project root → http://localhost:8501
+**Infrastructure:** Serverless SQL Warehouse on AWS (`.cloud.databricks.com`).
+**Tables:** Unity Catalog at `workspace.default` —
+`workspace.default.suppliers`, `workspace.default.purchase_orders`,
+`workspace.default.po_line_items`, `workspace.default.goods_receipts`,
+`workspace.default.invoices`.
 
-**Streamlit version:** 1.56.0. Required `protobuf` downgrade to `4.25.9` to fix
-`ImportError: cannot import name 'descriptor' from 'google.protobuf'` on this environment.
+**Known dialect difference — boolean columns:**
+SQLite stores `on_time` and `in_full` as integers (1/0). Databricks Delta has native
+`BOOLEAN` type. Model-generated SQL using `on_time = 1` fails on first attempt; the
+executor's existing retry logic catches the `RuntimeError`, sends the failed query +
+error back to Claude, which corrects to `on_time = TRUE`. No code change needed —
+the retry loop already handles this transparently.
 
-### 2. Planner `max_tokens` fix — `agent/graph.py` line ~99
+**Verification:** All 4 demo questions run against Databricks; answers match SQLite baseline exactly.
 
-Raised planner `max_tokens` from `1024` → `2048`.
-
-**Why:** Complex questions (e.g. "Who are our worst performing suppliers?") cause the planner to
-emit a 5-step plan with a large composite JOIN in step 5. At 1024 tokens the JSON response was
-truncated mid-string — both `json.loads()` parse attempts failed, plan fell back to 0 steps,
-executor ran nothing, synthesizer hallucinated a generic non-answer. At 2048 tokens the full JSON
-parses cleanly every time.
-
----
-
-## Key decisions made
-
-- **Planner token budget is the critical lever.** The planner's output is structured JSON containing
-  full SQL strings. Multi-step plans with subquery-heavy SQL easily exceed 1024 tokens. 2048 is
-  the right floor; if more complex questions arise, raise to 4096 before changing architecture.
-
-- **No architectural change needed for the truncation bug.** Option B (simpler planner + combiner
-  step) was considered but rejected — Option A (raise max_tokens) is less complexity for the same
-  result. The current planner/executor/synthesizer structure is sound.
-
-- **Streamlit `run_graph` import uses package-style path** (`from agent.graph import run_graph`)
-  rather than manipulating `sys.path` to make `agent/` the root. This avoids a name collision
-  where `graph` could shadow stdlib or other modules.
-
----
-
-## Questions answered this session (verified)
-
-| Question | Result |
+| Question | Databricks result |
 |---|---|
 | Which suppliers = 80% of spend? | 6 suppliers; Delta Alloy Partners 54.4% |
 | OTIF by tier? | Strategic 93.3% → Preferred 89.3% → Approved 79.6% → Spot 66.1% |
 | Which supplier overbills? | SUP-018 Hartwell; 19 invoices; avg +5.95% |
 | Closed POs with no receipt? | 12 POs, all corporate, correct IDs |
-| Who are our worst performing suppliers? | SUP-018 Hartwell (score 30.93, 86.4% overbilling) |
-| Which supplier has the most rejected goods? | SUP-049 Thunderbolt Hydraulics, 76 units |
+
+---
+
+## Single next action
+
+Phase 7 (considering): Delta time travel extension on `suppliers` table only.
+No implementation started. Decide scope before touching any file.
 
 ---
 
@@ -110,7 +96,7 @@ Run `python generate_data.py` from `generator/` → writes all five CSVs to `dat
 ### Key design decisions
 - **SEED = 108.** Each function uses `SEED + N` offset (1–4) so RNG streams are independent.
 - **PO date range Jan 2024 – Mar 2026** — extended from the blueprint's Dec 2025 because
-  today is 2026-04-14; the original range produced zero open POs.
+  today is 2026-04-16; the original range produced zero open POs.
 - **Tier-aware weight fix:** original generator used a random Zipf shuffle with no tier
   awareness — spot suppliers reached 63.2% of total spend. Fix: strategic indices receive
   the highest Zipf ranks, descending by tier. Result: spot now at 3.9% of spend.
@@ -174,10 +160,9 @@ number of failing rows for any tier that falls below its floor (strategic floor 
 ### Files built
 - **`config.py`** (project root) — `ANTHROPIC_API_KEY` from `.env` + `MODEL = "claude-sonnet-4-6"`.
   `MODEL` is defined here and imported everywhere; never hardcoded in agent files.
-- **`agent/tools.py`** — `execute_sql(query)` via sqlite3, 100-row cap (`fetchmany`),
-  raises `RuntimeError` with failed query + error text for model self-correction.
-  `TOOL_DEFINITION` dict in Anthropic format — used only by `agent_raw.py`.
-  `DB_PATH = Path(__file__).parent.parent / "meridian.db"` (project root).
+- **`agent/tools.py`** — `execute_sql(query)` originally via sqlite3, now Databricks (Phase 6).
+  100-row cap (`fetchmany`), raises `RuntimeError` with failed query + error text for model
+  self-correction. `TOOL_DEFINITION` dict in Anthropic format — used only by `agent_raw.py`.
 - **`agent/agent_raw.py`** — full agentic loop.
   - `run_agent(user_question, history=None)` — `history=None` with None-guard inside.
     Using `history=[]` as default would bleed conversation state across calls.
@@ -186,12 +171,11 @@ number of failing rows for any tier that falls below its floor (strategic floor 
   - CLI: `python agent/agent_raw.py "your question"` from project root.
   - Logs every SQL call with row count and execution time.
 
-### DB path — critical note
-`validate_data.py` writes `meridian.db` to the **project root** (uses relative
-`pathlib.Path("meridian.db")`), not `data/`. `tools.py` resolves to project root
-via `__file__`. Both point to the same file. `data/meridian.db` exists but is empty.
+### DB path note (SQLite era, now superseded)
+`validate_data.py` writes `meridian.db` to the project root. `data/meridian.db` exists
+but is empty. This is irrelevant post-Phase 6 — the agent now queries Databricks.
 
-### Exact schema in system prompt (verified against PRAGMA table_info)
+### Exact schema (verified against PRAGMA table_info / Databricks DESCRIBE)
 ```
 suppliers(supplier_id, supplier_name, tier, category_focus, country, is_active, onboarded_date)
 purchase_orders(po_id, supplier_id, business_unit, category, po_date,
@@ -204,7 +188,8 @@ invoices(invoice_id, po_id, supplier_id, invoice_date, due_date, paid_date,
          invoice_amount, po_total_value, status)
 ```
 Status values are lowercase throughout: `closed`, `open`, `cancelled`, `paid`,
-`pending`, `overdue`, `disputed`. `on_time` and `in_full` are SQLite booleans (1/0).
+`pending`, `overdue`, `disputed`. `on_time` and `in_full` are native `BOOLEAN` in
+Databricks Delta (were 1/0 integers in SQLite).
 
 ---
 
@@ -227,7 +212,7 @@ Status values are lowercase throughout: `closed`, `open`, `cancelled`, `paid`,
 - **`_strip_fences(text)`** — removes markdown code fences from any model response.
 
 ### Critical config note
-Planner `max_tokens` is **2048** (raised from 1024 this session). Do not lower it.
+Planner `max_tokens` is **2048** (raised from 1024 in Phase 5). Do not lower it.
 At 1024, complex multi-step plans with large composite JOINs are truncated mid-JSON,
 causing a silent 0-step fallback and hallucinated synthesizer output.
 
@@ -251,38 +236,31 @@ error on this machine (Anaconda environment with conflicting protobuf version).
 
 ---
 
-## Phase 6 — Databricks swap (NEXT)
+## Phase 6 — Databricks swap
 
-### Exact next action
-Open `agent/tools.py`. Replace the `sqlite3` connection block with `databricks-sql-connector`.
-`execute_sql()` signature and return type (`list[dict]`) must stay identical — nothing else moves.
+**Status: complete. All 4 demo questions verified against Databricks, results match SQLite exactly.**
 
-### What changes in `tools.py`
-```python
-# Replace this:
-import sqlite3
-conn = sqlite3.connect(DB_PATH)
-...
+See "What was built last session" above for full change log.
 
-# With this (sketch):
-from databricks import sql as dbsql
-conn = dbsql.connect(
-    server_hostname=os.environ["DATABRICKS_HOST"],
-    http_path=os.environ["DATABRICKS_HTTP_PATH"],
-    access_token=os.environ["DATABRICKS_TOKEN"],
-)
-```
-Qualify table names with `{catalog}.{schema}.` prefix if Unity Catalog is enabled.
+**Key facts for future sessions:**
+- Warehouse type: Serverless SQL Warehouse on AWS (`.cloud.databricks.com`)
+- Unity Catalog path: `workspace.default.<table>`
+- Boolean dialect: `on_time = 1` fails; `on_time = TRUE` works — retry loop handles transparently
+- Only `agent/tools.py` was changed; all other agent files are backend-agnostic
 
-### Env vars needed
-- `DATABRICKS_HOST`
-- `DATABRICKS_TOKEN`
-- `DATABRICKS_HTTP_PATH`
-- `DATABRICKS_CATALOG` / `DATABRICKS_SCHEMA`
+---
 
-### Acceptance test
-Run all 4 demo questions via `python agent/graph.py "..."` and confirm answers match
-the SQLite baseline before calling Phase 6 complete.
+## Phase 7 — Delta time travel (considering)
+
+No implementation started.
+
+**Proposed scope:** suppliers table only. Use Delta `VERSION AS OF` or `TIMESTAMP AS OF`
+to allow questions like "what did our supplier roster look like 6 months ago?"
+
+**Decision needed before starting:**
+- Which queries / use cases actually benefit from time travel?
+- Does the planner need a new tool, or can it generate time travel SQL natively?
+- Is this scope-creep for the portfolio demo, or a meaningful differentiator?
 
 ---
 
