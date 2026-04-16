@@ -8,60 +8,59 @@ Last updated: 2026-04-16
 - [x] Phase 4: LangGraph refactor complete — all 4 demo questions pass via `graph.py`
 - [x] Phase 5: Streamlit UI built and running — all 4 demo questions render correctly in browser
 - [x] Phase 6: Databricks swap complete — all 4 demo questions verified, results match SQLite exactly
-- [ ] Phase 7: Delta time travel extension (considering — suppliers table only)
+- [x] Phase 7: Delta time travel complete — VERSION AS OF working, all 4 versions queryable, 2 example questions verified
+
+**All phases complete. No next action.**
 
 ---
 
 ## What was built last session
 
-### Phase 6 — Databricks swap (`agent/tools.py` only)
+### Phase 7 — Delta time travel extension
 
-**Three files changed:**
+**Files changed:**
 
-1. **`.env`** — replaced old Tier 2 block (`DATABRICKS_SERVER_HOSTNAME`, `DB_CATALOG`,
-   `DB_SCHEMA`) with exactly three vars: `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`,
-   `DATABRICKS_TOKEN`. Values filled in by user after scaffold was committed.
+1. **`databricks/seed_supplier_history.py`** (new) — runs three mutations against
+   `workspace.default.suppliers` via `databricks-sql-connector` to create 4 Delta versions.
+   Imports credentials from `config.py`. Run once from project root:
+   `python databricks/seed_supplier_history.py`
 
-2. **`config.py`** — added three new module-level constants loaded via `os.environ[...]`,
-   same pattern as `ANTHROPIC_API_KEY`. Missing var fails loudly at import time.
+2. **`agent/graph.py`** — one paragraph added to `SCHEMA_CONTEXT` (the planner system prompt).
+   Documents `VERSION AS OF` syntax, the version map, and when to use time travel.
 
-3. **`agent/tools.py`** — replaced `sqlite3` with `databricks-sql-connector`.
-   - `dbsql.connect()` takes `catalog="workspace"`, `schema="default"` directly —
-     unqualified table names in model-generated SQL resolve correctly without rewriting queries.
-   - `cur.description` → column names → `dict(zip(...))` replicates `sqlite3.Row` dict behavior.
-   - `fetchmany(ROW_LIMIT)` cap, execution time logging, and `RuntimeError` with query+error
-     text are all preserved unchanged.
-   - `dbsql.exc.DatabaseError` replaces `sqlite3.OperationalError` as the caught error type.
-   - `DB_PATH` removed — no longer needed.
+3. **`streamlit_app.py`** — two time travel example questions added to the sidebar question list,
+   plus a caption: "Time travel queries supported — ask about supplier state at any point since Jan 2024."
 
-**Infrastructure:** Serverless SQL Warehouse on AWS (`.cloud.databricks.com`).
-**Tables:** Unity Catalog at `workspace.default` —
-`workspace.default.suppliers`, `workspace.default.purchase_orders`,
-`workspace.default.po_line_items`, `workspace.default.goods_receipts`,
-`workspace.default.invoices`.
+**No other files touched.**
 
-**Known dialect difference — boolean columns:**
-SQLite stores `on_time` and `in_full` as integers (1/0). Databricks Delta has native
-`BOOLEAN` type. Model-generated SQL using `on_time = 1` fails on first attempt; the
-executor's existing retry logic catches the `RuntimeError`, sends the failed query +
-error back to Claude, which corrects to `on_time = TRUE`. No code change needed —
-the retry loop already handles this transparently.
+### Delta version map
 
-**Verification:** All 4 demo questions run against Databricks; answers match SQLite baseline exactly.
+| Version | Event | Change |
+|---------|-------|--------|
+| 0 | Initial load | 50 suppliers baseline |
+| 1 | 2024-07-15 supplier tier review | SUP-022 Palisade Pneumatics promoted `approved → preferred` |
+| 2 | 2024-07-15 new strategic supplier | SUP-051 Meridian Alloy Backup Co inserted as `strategic` |
+| 3 | 2025-02-01 overbilling response | SUP-018 Hartwell Industrial Supply demoted to `spot`, `is_active = FALSE` |
 
-| Question | Databricks result |
+### Critical implementation note — VERSION AS OF, not TIMESTAMP AS OF
+
+`TIMESTAMP AS OF` requires the table to predate the query timestamp. Because
+`workspace.default.suppliers` was created today (2026-04-16), any `TIMESTAMP AS OF`
+reference to a historical date (e.g. `'2024-07-15'`) fails — the table did not exist
+at that timestamp. `VERSION AS OF` queries by Delta commit version number, which is
+always valid regardless of when the table was created. This is the correct approach
+for this project.
+
+The planner system prompt explicitly uses `VERSION AS OF` with the version map so the
+model generates correct queries without needing to discover this limitation through
+the retry loop.
+
+### Verified time travel questions
+
+| Question | Behavior |
 |---|---|
-| Which suppliers = 80% of spend? | 6 suppliers; Delta Alloy Partners 54.4% |
-| OTIF by tier? | Strategic 93.3% → Preferred 89.3% → Approved 79.6% → Spot 66.1% |
-| Which supplier overbills? | SUP-018 Hartwell; 19 invoices; avg +5.95% |
-| Closed POs with no receipt? | 12 POs, all corporate, correct IDs |
-
----
-
-## Single next action
-
-Phase 7 (considering): Delta time travel extension on `suppliers` table only.
-No implementation started. Decide scope before touching any file.
+| What tier was Hartwell Industrial Supply before they were flagged? | Queries VERSION AS OF 2; returns `approved` |
+| How has our supplier roster changed since the initial load? | Compares VERSION AS OF 0 vs VERSION AS OF 3 |
 
 ---
 
@@ -159,23 +158,19 @@ number of failing rows for any tier that falls below its floor (strategic floor 
 
 ### Files built
 - **`config.py`** (project root) — `ANTHROPIC_API_KEY` from `.env` + `MODEL = "claude-sonnet-4-6"`.
+  Also loads `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_TOKEN` (added Phase 6).
   `MODEL` is defined here and imported everywhere; never hardcoded in agent files.
-- **`agent/tools.py`** — `execute_sql(query)` originally via sqlite3, now Databricks (Phase 6).
+- **`agent/tools.py`** — `execute_sql(query)` via Databricks SQL connector (swapped Phase 6).
   100-row cap (`fetchmany`), raises `RuntimeError` with failed query + error text for model
   self-correction. `TOOL_DEFINITION` dict in Anthropic format — used only by `agent_raw.py`.
 - **`agent/agent_raw.py`** — full agentic loop.
   - `run_agent(user_question, history=None)` — `history=None` with None-guard inside.
-    Using `history=[]` as default would bleed conversation state across calls.
   - Loop: call Claude → `tool_use` → `execute_sql` → append `tool_result` → repeat.
   - `MAX_TURNS = 6`, `MAX_RETRIES = 2` per failing query, graceful error on exhaustion.
   - CLI: `python agent/agent_raw.py "your question"` from project root.
   - Logs every SQL call with row count and execution time.
 
-### DB path note (SQLite era, now superseded)
-`validate_data.py` writes `meridian.db` to the project root. `data/meridian.db` exists
-but is empty. This is irrelevant post-Phase 6 — the agent now queries Databricks.
-
-### Exact schema (verified against PRAGMA table_info / Databricks DESCRIBE)
+### Exact schema (verified against Databricks DESCRIBE)
 ```
 suppliers(supplier_id, supplier_name, tier, category_focus, country, is_active, onboarded_date)
 purchase_orders(po_id, supplier_id, business_unit, category, po_date,
@@ -225,7 +220,7 @@ causing a silent 0-step fallback and hallucinated synthesizer output.
 ### File: `streamlit_app.py` (project root)
 
 - Wide layout, `st.chat_input` / `st.chat_message`, session state history
-- Sidebar: 4 example questions + full schema reference + glossary
+- Sidebar: 6 example questions (4 standard + 2 time travel) + schema reference + glossary
 - Each user message calls `run_graph()` under `st.spinner`; answers rendered as markdown
 - Error handling: bare `except Exception` surfaces errors in chat window, no crash
 
@@ -240,29 +235,51 @@ error on this machine (Anaconda environment with conflicting protobuf version).
 
 **Status: complete. All 4 demo questions verified against Databricks, results match SQLite exactly.**
 
-See "What was built last session" above for full change log.
+**Files changed:** `.env`, `config.py`, `agent/tools.py` only.
 
-**Key facts for future sessions:**
+**Key facts:**
 - Warehouse type: Serverless SQL Warehouse on AWS (`.cloud.databricks.com`)
 - Unity Catalog path: `workspace.default.<table>`
+- `dbsql.connect()` takes `catalog="workspace"`, `schema="default"` — unqualified table names resolve correctly
 - Boolean dialect: `on_time = 1` fails; `on_time = TRUE` works — retry loop handles transparently
-- Only `agent/tools.py` was changed; all other agent files are backend-agnostic
+- `dbsql.exc.DatabaseError` is the caught error type (replaces `sqlite3.OperationalError`)
+
+**Verified results (Databricks, match SQLite baseline):**
+
+| Question | Result |
+|---|---|
+| Which suppliers = 80% of spend? | 6 suppliers; Delta Alloy Partners 54.4% |
+| OTIF by tier? | Strategic 93.3% → Preferred 89.3% → Approved 79.6% → Spot 66.1% |
+| Which supplier overbills? | SUP-018 Hartwell; 19 invoices; avg +5.95% |
+| Closed POs with no receipt? | 12 POs, all corporate, correct IDs |
 
 ---
 
-## Phase 7 — Delta time travel (considering)
+## Phase 7 — Delta time travel
 
-No implementation started.
+**Status: complete. VERSION AS OF working, all 4 versions queryable, 2 example questions verified.**
 
-**Proposed scope:** suppliers table only. Use Delta `VERSION AS OF` or `TIMESTAMP AS OF`
-to allow questions like "what did our supplier roster look like 6 months ago?"
+**Files changed:** `databricks/seed_supplier_history.py` (new), `agent/graph.py`, `streamlit_app.py`.
 
-**Decision needed before starting:**
-- Which queries / use cases actually benefit from time travel?
-- Does the planner need a new tool, or can it generate time travel SQL natively?
-- Is this scope-creep for the portfolio demo, or a meaningful differentiator?
+**Key facts:**
+- Syntax: `VERSION AS OF` — NOT `TIMESTAMP AS OF`
+- `TIMESTAMP AS OF` fails because the table was created 2026-04-16; historical timestamps
+  predate the table's existence. `VERSION AS OF` is always valid.
+- Version map hardcoded in planner system prompt so model generates correct queries without retry
+
+**Version map:**
+
+| Version | Event | Change |
+|---------|-------|--------|
+| 0 | Initial load | 50 suppliers baseline |
+| 1 | Tier review | SUP-022 Palisade Pneumatics `approved → preferred` |
+| 2 | New supplier | SUP-051 Meridian Alloy Backup Co inserted as `strategic` |
+| 3 | Overbilling response | SUP-018 Hartwell `→ spot`, `is_active = FALSE` |
+
+**To recreate version history on a fresh table:**
+`python databricks/seed_supplier_history.py` from project root.
 
 ---
 
 ## Open blockers
-None.
+None. All phases complete.

@@ -67,7 +67,9 @@ Domain glossary:
   Price variance — (unit_price - standard_cost) / standard_cost. Positive = paid above benchmark.
   DPO           — Days Payable Outstanding. Avg days between invoice_date and paid_date.
   Overbilling   — invoice_amount > po_total_value; flagged when ratio > 1.03.
-  Tier          — strategic > preferred > approved > spot.\
+  Tier          — strategic > preferred > approved > spot.
+
+DELTA TIME TRAVEL: The suppliers table has 4 versions (0–3). Use VERSION AS OF syntax to query historical states. Example: SELECT * FROM suppliers VERSION AS OF 0. Version map: 0 = baseline 50 suppliers initial load, 1 = after supplier tier review (SUP-022 Palisade promoted to preferred), 2 = after new strategic supplier onboarded (SUP-051 Meridian Alloy Backup Co added), 3 = current state after overbilling response (SUP-018 Hartwell deactivated and demoted to spot). Use time travel when questions reference past supplier states, roster changes, or audit trail requests.\
 """
 
 # ── State ──────────────────────────────────────────────────────────────────────

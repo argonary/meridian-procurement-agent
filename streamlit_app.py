@@ -41,9 +41,13 @@ with st.sidebar:
         "What is our OTIF rate broken down by supplier tier?",
         "Which supplier is overbilling us, and by how much?",
         "Show me all closed POs that have no goods receipt.",
+        "What tier was Hartwell Industrial Supply before they were flagged?",
+        "How has our supplier roster changed since the initial load?",
     ]
     for q in examples:
         st.markdown(f"- *{q}*")
+
+    st.caption("Time travel queries supported — ask about supplier state at any point since Jan 2024.")
 
     st.divider()
 
