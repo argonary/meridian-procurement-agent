@@ -681,7 +681,7 @@ def generate_invoices(
             ratio          = float(np_rng.uniform(1.04, 1.08))
             invoice_amount = round(po_total * ratio, 2)
         else:
-            noise          = float(np_rng.normal(0, 0.005))
+            noise          = float(np_rng.uniform(-0.04, 0.002))
             invoice_amount = round(max(po_total * (1 + noise), 0.01), 2)
 
         # paid_date
