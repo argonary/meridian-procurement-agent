@@ -405,7 +405,7 @@ WHERE tier = 'strategic'
 
 ## 9. Causal Logic & Intentional Anomalies
 
-### Causal structure 1: Supplier tier → OTIF performance
+### Causal structure 1: Supplier tier -> OTIF performance
 
 | Tier | OTIF center | Std deviation | Procurement interpretation |
 |---|---|---|---|
@@ -414,16 +414,16 @@ WHERE tier = 'strategic'
 | Approved | 78% | ±7% | On the vendor list, not preferred. Material failure rate. |
 | Spot | 65% | ±12% | One-off purchases, no SLA, highly unpredictable. |
 
-### Causal structure 2: Spend category → Price variance
+### Causal structure 2: Spend category -> Price variance
 
 | Category | Variance range | Procurement reason |
 |---|---|---|
-| Direct materials | ±2–3% | High-volume, contracted, price locked |
-| MRO | ±8–15% | Mostly contracted, frequent urgent spot buys |
-| Indirect/Services | ±10–20% | Low contract coverage, high discretion |
-| Tail spend | ±20–30% | Maverick buying — off-contract, off-catalog |
+| Direct materials | ±2-3% | High-volume, contracted, price locked |
+| MRO | ±8-15% | Mostly contracted, frequent urgent spot buys |
+| Indirect/Services | ±10-20% | Low contract coverage, high discretion |
+| Tail spend | ±20-30% | Maverick buying -- off-contract, off-catalog |
 
-### Causal structure 3: PO volume → Pareto distribution
+### Causal structure 3: PO volume -> Pareto distribution
 
 Supplier PO volume is assigned via a power-law distribution: approximately 20% of suppliers account for ~80% of total spend. This is validated as part of the generation suite (Check 1).
 
@@ -431,12 +431,13 @@ Supplier PO volume is assigned via a power-law distribution: approximately 20% o
 
 | Anomaly | Where | Business risk |
 |---|---|---|
-| **Overbilling supplier** (SUP-018 Hartwell) | `invoices` | 4–8% overbilling on 85%+ of invoices. Financial loss at volume. Triggers v3 supplier changes. |
-| **Duplicate supplier names** | `suppliers` | Two vendors with near-identical names — spend is split, performance is masked. |
-| **Single-source categories** | `purchase_orders` | Three high-spend categories with one active supplier each — no competitive pricing, supply chain exposure. |
-| **Missing receipts** | `goods_receipts` | 10–15 closed, fully-paid corporate POs with no delivery confirmation — three-way match failure. |
+| **Overbilling supplier** (SUP-018 Hartwell) | `invoices` | Systematic overbilling concentrated in a small number of suppliers. Dataset-wide overbilling rate is calibrated to 6.2% of invoices, reflecting realistic AP conditions. SUP-018 is the primary offender and triggers v3 supplier changes. |
+| **Duplicate supplier names** | `suppliers` | Two vendors with near-identical names -- spend is split, performance is masked. |
+| **Single-source categories** | `purchase_orders` | Three high-spend categories with one active supplier each -- no competitive pricing, supply chain exposure. |
+| **Missing receipts** | `goods_receipts` | 10-15 closed, fully-paid corporate POs with no delivery confirmation -- three-way match failure. |
 
 Note: SUP-018 Hartwell's overbilling behavior is what triggers its tier demotion and deactivation in Version 3 of the suppliers table. The causal link between the invoice anomaly and the SCD change is a deliberate narrative thread across the schema.
+
 
 ---
 
@@ -547,7 +548,7 @@ The time travel layer is not isolated from the rest of the schema — it creates
 
 ## 12. Key Analytical Domains
 
-The schema supports seven primary analytical domains:
+The schema supports seven primary analytical domains, each corresponding to a standalone SQL analysis in the `analysis/sql/` folder. Together these queries power the Meridian Procurement Analytics Lakeview dashboard, which surfaces four executive KPIs (Total Active Spend, Suppliers with HIGH Risk, Overbilling Exposure, and Invoices Failing Three-Way Match) alongside three operational charts.
 
 ### 12.1 Spend analysis
 
@@ -575,7 +576,7 @@ The schema supports seven primary analytical domains:
 
 **Primary tables:** `po_line_items`, `purchase_orders`, `suppliers`
 
-**Key metrics:** Average price variance by category. Total variance cost in dollars (`(unit_price - standard_cost) × quantity`). Tail spend identification. Maverick buying rate (% of spend with >15% variance).
+**Key metrics:** Average price variance by category. Total variance cost in dollars (`(unit_price - standard_cost) x quantity`). Tail spend identification. Maverick buying rate (% of spend with >15% variance).
 
 ---
 
@@ -585,7 +586,7 @@ The schema supports seven primary analytical domains:
 
 **Primary tables:** `invoices`, `purchase_orders`, `goods_receipts`
 
-**Key metrics:** Billing ratio (`invoice_amount / po_total_value`) by supplier. Overbilling detection. DPO. Overdue invoice aging. Three-way match failure rate.
+**Key metrics:** Billing ratio (`invoice_amount / po_total_value`) by supplier. Overbilling detection. DPO. Overdue invoice aging. Three-way match failure rate. A 5% tolerance is applied to amount variance checks to account for legitimate variances including freight, taxes, and rounding.
 
 ---
 
