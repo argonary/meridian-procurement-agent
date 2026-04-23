@@ -16,6 +16,11 @@
 --
 -- OUTPUT:
 --   Item-level variance, ranked by total overspend impact.
+--
+-- DASHBOARD USE:
+--   Powers the "Price Variance: Top Items by Overspend"
+--   bar chart on the Spend & Performance tab. Limited to
+--   top 50 items by total overspend impact.
 -- ============================================================
 
 WITH variance AS (

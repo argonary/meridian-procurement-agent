@@ -17,6 +17,15 @@
 -- OUTPUT:
 --   Invoice-level overbilling flags with dollar variance
 --   and supplier context, ranked by overcharge amount.
+--
+-- DASHBOARD KPI: Overbilling Exposure
+--   The Lakeview counter widget derives total overbilling
+--   exposure directly from this query's source data:
+--
+--   SELECT ROUND(SUM(invoice_amount - po_total_value), 2)
+--       AS total_overbilling_exposure
+--   FROM workspace.default.invoices
+--   WHERE invoice_amount > po_total_value
 -- ============================================================
 
 SELECT

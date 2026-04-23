@@ -15,6 +15,12 @@
 -- OUTPUT:
 --   OTIF rate, fill rate, and rejection rate by supplier
 --   tier, ordered from best to worst performing.
+--
+-- DASHBOARD USE:
+--   Powers the "Supplier OTIF by Tier" bar chart on the
+--   Spend & Performance tab. A reference line at 85% OTIF
+--   is applied in Lakeview to indicate minimum acceptable
+--   delivery performance.
 -- ============================================================
 
 SELECT
